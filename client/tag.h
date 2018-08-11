@@ -58,9 +58,13 @@ public:
 
     // <div> -> false, </div> - true
     // Use only with withoutProps! Otherwise might not work correctly with links
+
     static bool containsClosure(const string& tag){
-        return (tag.find('/') == string::npos);
+        // return (tag.find('/') != string::npos);
+        static regex closure_before("(<\\s*/.+>)", regex::optimize);
+        return regex_match(tag, closure_before);
     }
+
 
     // title="What a fancy title", class=[is-outlined, is-red, is-primary]
     static bool needToSplitPropsValue(const string& prop){
@@ -127,17 +131,19 @@ public:
         while(!main_deq.empty()) {
             children_tags.emplace_back();
             do{
+                if(main_deq.empty()){ // something went horrifically wrong for some reason, this hack works fine, needs debugging
+                    main_deq.clear();
+                    curr_deq.clear();
+                    break;
+                }
                 string curr_tag = main_deq.front();
-                //if ((!curr_deq.empty() and withoutProps(curr_deq.back()) != "<script>") or curr_tag == "</script>")  children_tags[children_tags.size()-1].push_back(curr_tag);
                 children_tags[children_tags.size()-1].push_back(curr_tag);
                 main_deq.pop_front();
-                // after
+
                 if(!curr_deq.empty() and closureFor( withoutProps(curr_deq.back())) == curr_tag)
                     curr_deq.pop_back();
-                else {
-                    // if (!curr_deq.empty() and withoutProps(curr_deq.back()) == "<script>") continue;
+                else
                     curr_deq.push_back(curr_tag);
-                }
             } while(!curr_deq.empty());
         }
 
@@ -153,6 +159,9 @@ public:
         // Tag is 'embraced' in itself <a> <b> </b> <c> </c> </a> a is an embracing class with children: c, d
         type = typeName(tags[0]);
         resolve_props(tags[0]);
+
+        // Another hack that needs to be resolved
+        if(tags.size() < 2) return;
 
         tags.erase(tags.begin());
         tags.erase(tags.end());

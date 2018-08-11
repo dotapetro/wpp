@@ -25,6 +25,7 @@ public:
     ~Parser(){
         delete page;
     }
+
     Tag* page;
     void makeStack(const string& s, deque<string>& tags){
         stringstream ss;
@@ -66,9 +67,21 @@ public:
             }
         }
     }
+    deque<string> removeScriptBody(const deque<string>& tags){
+        deque<string> clear;
+        for(auto it = tags.begin(); it < tags.end(); it++){
+            if(Tag::withoutProps(*it) == "<script>") {
+                while (*it != "</script>")  it++;
+                continue;
+            }
+            clear.push_back(*it);
+        }
+        return clear;
+    }
+
     void parse(const string& s){
 
-        static const string BANNED_TAGS[]  = {"meta", "br", "link", "base", "hr", "wbr", "area", "img", "param", "input"};
+        static const string BANNED_TAGS[]  = {"meta", "br", "link", "base", "hr", "wbr", "area", "img", "param", "input", "path", "col", "command", "embed", "keygen"};
 
         deque<string> tags;
 
@@ -84,8 +97,7 @@ public:
             return false;
         }), tags.end());
 
-        for(auto tag: tags)
-            cout << tag << endl;
+        tags = removeScriptBody(tags);
 
         cout << "Cleaning complete, building the tree\n\n";
         page = new Tag(tags);
