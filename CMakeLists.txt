@@ -15,7 +15,7 @@ find_package( Boost COMPONENTS thread system regex REQUIRED )
 include_directories(${Boost_INCLUDE_DIR})
 
 # Main
-add_executable(NetUtils main.cpp client/connection_pool.h client/parse_options.h client/tag.h client/parser.h)
+add_executable(NetUtils main.cpp client/connection_pool.h client/parse_options.h client/tag.h client/parser.h client/parser_query.h)
 
 # Pthread
 target_link_libraries (NetUtils ${CMAKE_THREAD_LIBS_INIT})

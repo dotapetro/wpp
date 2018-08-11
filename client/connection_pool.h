@@ -23,28 +23,31 @@ using tcp = ip::tcp;
 // So that you spawn a whole bunch of parsers and giving them a command to work with, assigning the URLs (typically pages like ?page=0, ?page=1, ect...)
 // It will be also cool if you use an abstract factory for creating them
 
-class Pool {
+class HttpsConnectionPool {
 public:
-    static std::string retrieve_single(const std::string& hostname, const std::string& port, const std::string& target){
-
+    std::string host;
+    std::string port;
+    boost::asio::io_context ioc;
+    ssl::context ssl_ioc{ssl::context::method::sslv23_client};
+    ssl::stream<ip::tcp::socket> ssock{ioc, ssl_ioc};
+    explicit HttpsConnectionPool(const std::string& host, const std::string& port="443"){
+        this->host = host;
+        this->port = port;
         std::cout << "Setting up environment\n";
 
-        boost::asio::io_context ioc;
-        ssl::context ssl_context(ssl::context::method::sslv23_client);
         tcp::resolver resolver{ioc};
-        ssl::stream<ip::tcp::socket> ssock{ioc, ssl_context};
-
         std::cout << "Creating socket and performing handshake\n";
 
-        auto const results = resolver.resolve(hostname, port);
+        auto const results = resolver.resolve(host, port);
         boost::asio::connect(ssock.lowest_layer(), results);
         ssock.handshake(ssl::stream_base::handshake_type::client);
-
-
+        std::cout << "Connection pool is created\n\n";
+    }
+    std::string get(const std::string& target){
         std::cout << "Creating request\n";
 
         http::request<http::string_body> req{http::verb::get, target, 11}; // 11 = HTTP 1.1
-        req.set(http::field::host, hostname);
+        req.set(http::field::host, host);
         req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 
         std::cout << "Sending request\n";
@@ -61,5 +64,47 @@ public:
         return  boost::beast::buffers_to_string(res.body().data());
     }
 };
+
+std::string getHttp(const std::string& host, const std::string& target,  const std::string& port ="443"){
+
+    int version = 11;
+
+    // The io_context is required for all I/O
+    boost::asio::io_context ioc;
+
+    // These objects perform our I/O
+    tcp::resolver resolver{ioc};
+    tcp::socket socket{ioc};
+
+    // Look up the domain name
+    auto const results = resolver.resolve(host, port);
+
+    // Make the connection on the IP address we get from a lookup
+    boost::asio::connect(socket, results.begin(), results.end());
+
+    // Set up an HTTP GET request message
+    http::request<http::string_body> req{http::verb::get, target, version};
+    req.set(http::field::host, host);
+    req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+
+    // Send the HTTP request to the remote host
+    http::write(socket, req);
+
+    // This buffer is used for reading and must be persisted
+    boost::beast::flat_buffer buffer;
+
+    // Declare a container to hold the response
+    http::response<http::dynamic_body> res;
+
+    // Receive the HTTP response
+    http::read(socket, buffer, res);
+
+
+    // Gracefully close the socket
+    boost::system::error_code ec;
+    socket.shutdown(tcp::socket::shutdown_both, ec);
+
+    return  boost::beast::buffers_to_string(res.body().data());
+}
 
 

@@ -10,8 +10,8 @@
 using namespace std;
 
 
-std::vector<std::string> split(const std::string& s, char delimiter) {
-    vector<std::string> tokens;
+vector<string> split(const string& s, char delimiter) {
+    vector<string> tokens;
     string token;
     stringstream tokenStream;
     tokenStream << s;
@@ -21,42 +21,49 @@ std::vector<std::string> split(const std::string& s, char delimiter) {
     return tokens;
 }
 
+template<class C, class T>
+auto contains(const C& v, const T& x) -> decltype(end(v), true)
+{
+    return end(v) != std::find(begin(v), end(v), x);
+}
+
 class Tag{
-public:
+private:
+    friend class Parser;
+protected:
     string type = ""; // types: div, head, a, link, header. tags: <div>, </div>, <a>, ...
     vector<string> classes;
     vector<string> ids;
     unordered_map<string, vector<string>> props;
     vector<Tag*> children;
-
-    string tag(){
-        return string("<") + type + string(">");
-    }
-
-    string closure() { return string("<") + "/" + type + string(">"); }
-
-    static string getTypeName(string tag){
+public:
+    // Type name for raw <link src="abc.html" deprecated> -> link
+    static string typeName(string tag){
         static regex rgx("(\\w+)", regex::optimize);
         auto type = std::sregex_iterator(tag.begin(), tag.end(), rgx); // Type is the first one
         return static_cast<std::smatch>(*type).str();
     }
 
-    static string closureForTag(string tag) {
-        return string("<") + "/" + getTypeName(tag) + string(">");
+    // <html> -> </html>
+    static string closureFor(string tag) {
+        return string("<") + "/" + typeName(tag) + string(">");
     }
 
-
-    static string tagWithoutProps(string tag){
+    // <link src="abc.html" content-type="idk" something> -> <link>
+    static string withoutProps(const string& tag){
         if (containsClosure(tag))
-            return string("</") + getTypeName(tag) + string(">");
-        return  string("<") + getTypeName(tag) + string(">");
+            return string("</") + typeName(tag) + string(">");
+        return  string("<") + typeName(tag) + string(">");
     }
 
-    static bool containsClosure(string tag){
+    // <div> -> false, </div> - true
+    // Use only with withoutProps! Otherwise might not work correctly with links
+    static bool containsClosure(const string& tag){
         return (tag.find('/') == string::npos);
     }
 
-    static bool needToSplitPropsValue(string prop){
+    // title="What a fancy title", class=[is-outlined, is-red, is-primary]
+    static bool needToSplitPropsValue(const string& prop){
         string noNeed[] = {"content", "title", "src"};
         for(auto i: noNeed)
             if (i == prop)
@@ -77,9 +84,7 @@ public:
 
     void resolve_prop_values(string s, string name, unordered_map<string, vector<string>>& p){
         if(!needToSplitPropsValue(name)){
-            vector<string> v;
-            v.push_back(s);
-            p.insert(make_pair(name, v));
+            p.insert(make_pair(name, vector<string>{s}));
             return;
         }
         static regex rgx("(\\S+)", regex::optimize);
@@ -94,6 +99,7 @@ public:
         p.insert(make_pair(name, v));
     }
 
+    // resolves props for tag <div class="is-outlined is-fancy"> -> div.is-outlined.is-fancy
     void resolve_props(string tag){
         static regex rgx("(\\w+\\s*=\\s*\"[^\"]+)", regex::optimize);
         auto props_begin = std::sregex_iterator(tag.begin(), tag.end(), rgx);
@@ -112,24 +118,26 @@ public:
         }
     }
 
-    void resolve_children(vector<string> tags){
-        vector<vector<string>> children_tags; // vector -> children -> their tags
+    // resolves children for tags
+    void resolve_children(deque<string> main_deq){
+        vector<deque<string>> children_tags; // vector -> children -> their tags
 
-        deque<string> main_deq;
-        for(auto t: tags) main_deq.push_back(t);
         deque<string> curr_deq;
 
         while(!main_deq.empty()) {
             children_tags.emplace_back();
             do{
                 string curr_tag = main_deq.front();
+                //if ((!curr_deq.empty() and withoutProps(curr_deq.back()) != "<script>") or curr_tag == "</script>")  children_tags[children_tags.size()-1].push_back(curr_tag);
                 children_tags[children_tags.size()-1].push_back(curr_tag);
                 main_deq.pop_front();
                 // after
-                if(!curr_deq.empty() && closureForTag( tagWithoutProps(curr_deq.back())) == curr_tag)
+                if(!curr_deq.empty() and closureFor( withoutProps(curr_deq.back())) == curr_tag)
                     curr_deq.pop_back();
-                else
+                else {
+                    // if (!curr_deq.empty() and withoutProps(curr_deq.back()) == "<script>") continue;
                     curr_deq.push_back(curr_tag);
+                }
             } while(!curr_deq.empty());
         }
 
@@ -139,11 +147,11 @@ public:
 
     }
 
-    Tag(vector<string> tags){
+    Tag(deque<string> tags){
         // props = new unordered_map<string, string>();
 
         // Tag is 'embraced' in itself <a> <b> </b> <c> </c> </a> a is an embracing class with children: c, d
-        type = getTypeName(tags[0]);
+        type = typeName(tags[0]);
         resolve_props(tags[0]);
 
         tags.erase(tags.begin());
@@ -152,6 +160,11 @@ public:
         resolve_children(tags);
     }
 
+    ~Tag(){
+        for(auto child: children) delete child;
+    }
+
+    // Small util func for fancy printing
     void repr(int spaceLevel = 0){
         if(type != "plaintext") {
             cout << string(spaceLevel * 2, ' ') << type;
@@ -178,11 +191,14 @@ public:
         }
     }
 
-    Tag* lastKid(){
-        return children[0];
-    }
-
-    ~Tag(){
-        for(auto child: children) delete child;
+    // Make search
+    void search(vector<Tag*>& res, const unordered_map<string, vector<string>>& query){
+        for(auto c: children)
+            c->search(res, query);
+        for(auto p: query){
+            if(p.first == "tag") if(type != p.second[0]) return;
+            if(p.first == "class") for (const auto& cl: p.second) if(!contains(classes, cl)) return;
+        }
+        res.push_back(this);
     }
 };

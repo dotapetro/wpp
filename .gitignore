@@ -1,4 +1,5 @@
 # Dirs
+.idea/
 cmake-build-debug/
 
 # Prerequisites

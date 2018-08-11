@@ -5,6 +5,17 @@
 #include <sstream>
 #include <deque>
 #include "tag.h"
+#include "parser_query.h"
+
+
+// An object to parse an html string into a tag object and perform queries on it
+// Note: it takes a single tag string as an argument (<html>...</html>),
+// If string contains two or more tags (<html>...</html><html>...</html>) on the first 'level' it will fail to parse it
+
+bool matchStr(const char* str1, const char* str2, int size){
+    for(int i = 0; i < size; i++) if(str1[i] != str2[i]) return false;
+    return true;
+}
 
 class Parser{
 public:
@@ -15,7 +26,7 @@ public:
         delete page;
     }
     Tag* page;
-    void make_stack(const string& s, vector<string>& tags){
+    void makeStack(const string& s, deque<string>& tags){
         stringstream ss;
 
         for(auto it = s.begin(); it < s.end();){
@@ -33,9 +44,7 @@ public:
                     ss << *it;
                     tags.push_back(ss.str());
                 }
-            } else if(*it !='\n' and *it!=' ') {
-                // We are inside the tag itself
-                // Adding the plaintext
+            } else if(*it !='\n' and *it!=' ') { // We are inside the tag itself, adding the plaintext
                 ss.str("");
                 stringstream content;
                 ss << "<plaintext content=\"";
@@ -43,10 +52,13 @@ public:
                     content << *it;
                     it++;
                 }
+
+                if(!tags.empty()) if(Tag::typeName(tags[tags.size()-1]) == "style") continue;
+
                 string res = content.str();
                 while(res.c_str()[0] == '>') res = res.substr(1, res.size()-1);
                 static regex contains_words("(\\w+)", regex::optimize);
-                if(!regex_search(res, contains_words) or Tag::getTypeName(tags[tags.size()-1]) == "style" or Tag::getTypeName(tags[tags.size()-1]) == "script" ) continue; // Smth weird happening here
+                if(!regex_search(res, contains_words)) continue;
                 ss << res;
                 ss << "\">";
                 tags.emplace_back(ss.str());
@@ -58,21 +70,26 @@ public:
 
         static const string BANNED_TAGS[]  = {"meta", "br", "link", "base", "hr", "wbr", "area", "img", "param", "input"};
 
-        vector<string> tags;
+        deque<string> tags;
 
         cout << "\nRequest recieved, working\n";
 
-        make_stack(s, tags);
+        makeStack(s, tags);
         cout << "Stack made, cleaning...\n";
 
         tags.erase(remove_if(tags.begin(), tags.end(), [](string s) {
             for(const auto& el: BANNED_TAGS){
-                if(Tag::getTypeName(s) == el) return true;
+                if(Tag::typeName(s) == el) return true;
             }
             return false;
         }), tags.end());
 
+        for(auto tag: tags)
+            cout << tag << endl;
+
         cout << "Cleaning complete, building the tree\n\n";
         page = new Tag(tags);
     }
+    ParserQuery query(const string& tagName){ return ParserQuery(tagName, {page}); }
+    ParserQuery query(){ return ParserQuery({page}); }
 };
